@@ -1,0 +1,261 @@
+; Archivo: main_2.s
+; Dispositivo: PIC16F887
+; Autor: Johann Haeussler 21223
+; Compilador: pic-a (v2.30), MPLABX V5.40
+;
+; Programa: 
+; Hardware: 
+;
+; Creado: 24 enero, 2022
+; Última modificación: 
+Processor 16F887
+
+ 
+#include <xc.inc>
+    
+  CONFIG FOSC=INTRC_NOCLKOUT	//oscilador interno
+  CONFIG WDTE=OFF   // WDT disabled (reinicio repetitivo de pic)
+  CONFIG PWRTE=OFF   // PWRT enabled (espera de 72ms al iniciar)
+  CONFIG MCLRE=OFF  // El pin de MCLR se utiliza como I/O
+  CONFIG CP=OFF    //Sin protección de código
+  CONFIG CPD=OFF   //Sin protección de datos
+  
+  CONFIG BOREN=OFF  // Sin reinicio cuando el voltaje de alimentación baja de 4V
+  CONFIG IESO=OFF   //Reinicio sin cambio de reloj de interno a externo
+  CONFIG FCMEN=OFF  //Cambio de reloj externo a interno en caso de fallo
+  CONFIG LVP=OFF	    //programación en bajo voltaje permitida
+;----------------
+;-------------------------------------------------------------------------------
+ ;				   CONFIG WORD.2
+ ;-------------------------------------------------------------------------------
+    CONFIG BOR4V = BOR40V		;BROWN-OT RESET SELECTION BIT (BROWN-OUT RESET SET TO 4.0V)
+    CONFIG WRT = OFF			;FLASH PROGRAM MEMORY SELF WRITE ENABLE BITS (WRITE PROTECTION OFF)
+    
+    
+// Config statements should precede, projectya afile includes.
+    #include <xc.inc>
+    
+    PSECT udata_bank0
+    Cont:	DS 2
+    Cont_Seg:	DS 2
+    Cont_Dec1:	DS 1
+;-------------------------------------------------------------------------------
+ ;				  MACRO
+ ;-------------------------------------------------------------------------------
+ RESET_TMR0 MACRO TMR_VAR
+    BANKSEL	TMR0		; SELECCIONAR EL BANCO 2 DEL TMR0
+    MOVLW	TMR_VAR		; CARGAR EL VALOR RECUBIDO POR LA FUNCION AL REGISTRO W
+    MOVWF	TMR0		; CARGAR EL VALOR DE,K REGISTRO W AL TMR0
+    BCF		T0IF		; LIMPIAR BANDERA DEL TMR0
+    ENDM			
+    
+;-------------------------------------------------------------------------------
+ ;				VARIABLES EN MEMORIA
+ ;-------------------------------------------------------------------------------
+PSECT udata_shr	    ; VARIABLES COMPARTIDAS
+    W_TEMP:	    DS 1    ; VARIABLE TEMPORAL PARA REGISTRO W
+    STATUS_TEMP:    DS 1    ; VARIABLE TEMPORAL PARA STATUS
+    
+;-------------------------------------------------------------------------------
+ ;				  VECTOR RESET
+ ;-------------------------------------------------------------------------------
+ PSECT resVect, class = CODE , abs, delta = 2;
+ ORG 00h		    ; POSICION 0000h RESET
+ resetVec:		    ; ETIQUETA PARA EL VECTOR RESET
+    PAGESEL main
+    goto main
+    
+ PSECT intVect, class = CODE, abs, delta = 2, abs
+ ORG 04h		    ; POSICION DE LA INTERRUPCION
+ 
+;-------------------------------------------------------------------------------
+ ;				 VECTOR DE INTERRUPCIONES
+ ;-------------------------------------------------------------------------------
+ PUSH:
+    MOVWF   W_TEMP	    ; COLOCAR FALO-R DEL REGFISTRO W EN VARIABLE TEMPORAL
+    SWAPF   STATUS, W	    ; INTERCAMBIAR STATUS CON REGISTRO W
+    MOVWF   STATUS_TEMP	    ; CARGAR VALOR REGISTRO W A VARIABLE TEMPORAL
+    
+ ISR:
+    BTFSC   RBIF	    ; INT  PORTB, SI=1 NO=0
+    CALL    INT_IOCRB	    ; SI > CORRER SUBRUTINA DE INTERRUPCION
+    BTFSC   T0IF	    ; INT TMR0, SI=1 NO=0
+    CALL    INT_TMR0	    ; SI > CORRER SUBRUTINA DE INTERRUPCION
+   
+    MOVF    Cont_Seg, W		; SE MUEVE EL VALOR DE LA CUENTA DE SEGUNDOS AL REGISTRO W
+    CALL    TABLA		; SE HACE UNA LLAMADA A LA TABLA DE INDEXADO PARA DISPLAY 
+    MOVWF   PORTD		; SE CARGA EL VALOR DEL INDEXADO EN EL PUERTO D 
+    MOVF    Cont_Dec1, W	; SE MUEVE EL VALOR DE LA CUENTA DE SEGUNDOS AL REGISTRO W
+    CALL    TABLA		; SE LLAMA A LA TABLA DEL INDEZADO PARA EL DISPLAY
+    MOVWF   PORTC		; SE CARGA EN EL PUERTO C EL VALOR DEL INDEXADO
+POP:
+    SWAPF   STATUS_TEMP, W  ; INTERCAMBIAR VALOR DE VARIABLE TEMPORAL DE STATUS CON W
+    MOVWF   STATUS	    ; CARGAR REGISTRO W A STATUS
+    SWAPF   W_TEMP, F	    ; INTERCAMBIAR VARIABLE TEMPORAL DE REGISTRO W CON F
+    SWAPF   W_TEMP, W	    ; INTERCAMBIAR VARIABLE TMEPORAL DE REGISTRO W CON F
+    RETFIE
+    
+;-------------------------------------------------------------------------------
+ ;				INT SUBRUTINAS
+ ;-------------------------------------------------------------------------------
+INT_IOCRB:
+    BANKSEL PORTA	    ; SUBRUTINAS DE INTERRUPCION EN PORTB
+    BTFSS   PORTB, 0	    ; SELECCIONAR BANCO 0
+    INCF    PORTA	    ; REVISAR SI EL BIT DEL PRIMER BOTON EN RB HA CAMBIADO A 0
+    BTFSS   PORTB, 1	    ; SI HA CAMBIADO A 0 (HA SIDO PRESIONADO) INCREMENTAR PUERTRO A
+    DECF    PORTA	    ; REVISAR SI EL BNIT DEL SEGUNDO BOTON EN RB HA CAMBIADO A 0
+    BCF	    RBIF	    ; SI HA CAMBIADO A 0 (HA SIDO PRESIONADO) DISMINUIR LA CUENTA EN PORTA
+    RETURN		    ; LIMPIAR LA BANDERA DE PORTB
+    
+ INT_TMR0:
+    RESET_TMR0	178	    ; LLAMAR LA FUNCION DEL MARCO DE RESETO DEL TMR0 CON EL VALOR CALCULADO
+    INCF    Cont	    ; INCREMENTAR VARIABLE DE CONTRADOIR DE MILISEGUNDO
+    MOVF    Cont, W	    ; CARGAR CUENTA A REGISTRO W
+    SUBLW   50		    ; RESTAR 50 DEL REGISTRO W PARA CONOCER SIO SE HA LLEGADO A LOPS 100MS
+    BTFSC   ZERO	    ; REVISAR SI LA BANDERA DE 0 NO ESTA ACTIVA
+    goto    INT_SEG	    ; SI SE HA ACTIVADO CAMBIAR DE SUBRUTINA
+    RETURN
+    
+ INT_SEG:
+    INCF    Cont_Seg	    ; INCREMENTAR LA CUIENTA DE SEGUNDOS
+    MOVF    Cont_Seg, W	    ; CARGAR LA CUIENTA DE SEGUNDOS AL REGISTRO W  
+    CLRF    Cont	    ; LIMPIAR LA CUENTA DE MILISEGUNDOS
+    SUBLW   10		    ; RESTAR 10 DEL REGSITRO W PARA CONOCER SI SE HA LLEGHADO A LOS 10s
+    BTFSC   ZERO	    ; REVISAR SILA BANDERA DE 0 NO ESTA ACTIVADA
+    GOTO    INC_DECI	    ; SI SE HA ACTIVADO CAMBIAR DE SUBRUTINA
+    RETURN
+    
+INC_DECI:
+    INCF    Cont_Dec1	    ; INCREMENTAR  LA CUENTA DE DECENAS DE SEGUNDOS
+    MOVF    Cont_Dec1,W	    ; CARGAR DICHA CUENTA AL REGISTRO W
+    CLRF    Cont_Seg	    ; LIMPIAR CUENTA DE SEGUNDOS
+    SUBLW   6		    ; REVISAR SI SE HA LLEGADO A 60 SEGUNDOS
+    BTFSC   ZERO	    ; SI LA BANDERA DE 0 INDICA QUE NO COINTINUAR SUBRUTINA
+    GOTO    TMR0MC	    ; SI LA BANDERA INDICA QUE SI, INICIAR SUBRUTINA DE LIMPIEZA
+    RETURN
+    
+TMR0MC:
+    CLRF    Cont_Dec1	    ; LIMPIAR CUENTA DE DECENAS
+    CLRF    Cont_Seg	    ; LIMPIAR CUENTA DE SEGUNDOS
+    RETURN
+    
+PSECT code, delta=2, abs
+ ORG 100h		    ; POSICION 100h PARA EL CODIGO
+
+;-------------------------------------------------------------------------------
+ ;				    MAIN CONFIGURACIÓN
+ ;-------------------------------------------------------------------------------
+ main: 
+    CALL    IO_CONFIG		; INICIAR CONFIGURACIÓN DE PINES
+    CALL    CLK_CONFIG		; INICIAR CONFIGURACIÓN DE RELOJ
+    CALL    TMR0_CONFIG		
+    CALL    IORCB_CONFIG	; INICIAR CONFIGURACIÓN DE IORC EN PORTB
+    CALL    INT_CONFIG		; INICIAR CONFIGURACIÓN DE INTERRUPCIONES
+    BANKSEL PORTA
+    
+ ;-------------------------------------------------------------------------------
+ ;				    LOOOP
+ ;-------------------------------------------------------------------------------
+
+ loop:
+    GOTO    loop
+    
+ ;-------------------------------------------------------------------------------
+ ;				    SUBRUTINAS
+ ;-------------------------------------------------------------------------------
+ 
+ IORCB_CONFIG:
+    BANKSEL IOCB		; SE SELECCIONA EL BANCO DONDE ESTA IOCB
+    BSF	    IOCB,0		; SE ACTIVA EL IOCB PARA EL PUSH 1
+    BSF	    IOCB,1		; SE ACTIBA EL IOCB PARA EL PUSH 2
+    
+    BANKSEL PORTA		; SE SELECCIONA EL BANCO 0
+    MOVF    PORTB, W		; SE REALIZA UNA CARGA AL VALOR DEL PUERTO A W PARA CORREGIR MISMATCH
+    BCF	    RBIF		; SE LIMPIA BANDERA DE LA INTERRUPCION DEL PUERTO B
+    RETURN
+
+IO_CONFIG:
+    BANKSEL ANSEL		; SE SELECCIONA EL BANCO 3
+    CLRF    ANSEL		; EL PUERTO A COMO DIGITAL
+    CLRF    ANSELH		; EL PUERTO B COMO DIGITAL
+    
+    BANKSEL TRISA		; SE SELECCIONA EL BANCO 1
+    MOVLW   0XF0		; VALOR DE ACTIVACION DE LOS PINES 3:1 COMO SALIDA EN PORTA
+    MOVWF   TRISA		; SE ACTIVAN PINES COMO SALIDA EN EL PUERTO A
+    BSF	    TRISB,0		; SE ACTIBA EL PIN 0 DEL PUERTO B COMO ENTRADA
+    BSF	    TRISB,1		; SE ACTIBA EL PIN 1 DEL PUERTO B COMO ENTRADA
+    CLRF    TRISC		; SE EL PUERTO C COMO SALIDA
+    CLRF    TRISD		; SE ACTIVA EL PUERTO D COMO SALIDA
+    
+    BCF	    OPTION_REG,7	; SE REALIZA UNA LIMPIAZA DEL RBPU PARA QUE EL PULL UP SE DESBLOQUEE EN PUERTO B
+    BSF	    WPUB, 0		; SETEAMOS WPUB PARA PODER ACTIVAR EL PIN 0 COMO UN WEAK-PULL UP
+    BSF	    WPUB,1		; SETEAMOS WPUB PARA PODER ACTIVAR EL PUN 1 EN PORTB COMO WEAL-PULL UP
+    
+    BANKSEL PORTA		; SE SELECCIONA EL BANCO 0
+    CLRF    PORTA		; LIMPIERZA DEL REGISTRO EN PORTA
+    CLRF    PORTD		; LIMPIERZA DEL REGISTRO EN PORTD
+    CLRF    PORTC		; LIMPIERZA DEL REGISTRO EN PORTC
+    RETURN
+  
+CLK_CONFIG:
+    BANKSEL OSCCON		; CONFIGURACIÓN DEL REGISTRO OSCCON PARA EL OSCILADOR
+    BCF IRCF0
+    BSF IRCF1
+    BSF IRCF2			; OSCILADOR A 4MHZ 
+    BSF SCS			; RELOJ INTERNO
+    RETURN
+    
+TMR0_CONFIG:
+    BANKSEL OPTION_REG		; SE SELECCIONA EL BANCO DEL REGISTRO DE OPCIONES
+    BCF	    T0CS		; SE UTILIZA EL CICLO INTERNO
+    BCF	    PSA			; PRESCALER DEL TIMER0
+    BSF	    PS2			;
+    BSF     PS1			;
+    BSF	    PS0			; PRESCALER EN 1:256
+ 
+    BANKSEL TMR0		; SE SELECCIONA EL BANCO DEL TIMER0
+    MOVLW 178			; SE CARGA EL VALOR AL REGISTRO W DE N
+    MOVWF TMR0			; SE CARGA W AL TMR0
+    BCF	T0IF			; SE LIMPIA BANDERA DEL TIMER0
+    RETURN
+    
+INT_CONFIG:
+    BANKSEL INTCON
+    BSF GIE			; SE ACTIVAN INTERRUPCIONES GLOBALES
+    BSF RBIE			; SE ACTIVA CAMBIO DE INTERRUPCIONES EN EL PUERTO B
+    BCF RBIF			; SE LIMPIA LA BANDERA DE CAMBIO EN EL PUERTO B POR SEGURIDAD
+    BSF T0IE			; SE ACTIBAN INTERRUPCIONES EN TMR0
+    BCF T0IF			; SE LIMPIA BANDERA EN TMR0
+    RETURN
+
+    
+;-------------------------------------------------------------------------------
+ ;				    INDICE DISPLAY
+ ;-------------------------------------------------------------------------------
+PSECT TABLA, class = code, delta=2, abs
+ORG 200h    ; posición para el código
+
+;------------------------------------------------
+TABLA:
+ clrf    PCLATH
+ bsf	 PCLATH, 1          ; 
+ andlw	 0x0f
+ addwf   PCL		    ; El valor del PC se suma con lo que haya en w para
+ retlw   00111111B	    ; 0	    
+ retlw   00000110B	    ; 1	    
+ retlw   01011011B	    ; 2	    
+ retlw   01001111B	    ; 3	    
+ retlw   01100110B	    ; 4	    
+ retlw   01101101B	    ; 5	    
+ retlw   01111101B	    ; 6
+ retlw   01000111B	    ; 7
+ retlw   01111111B	    ; 8
+ retlw   01100111B	    ; 9
+ retlw   01110111B	    ; A
+ retlw   01111100B	    ; b
+ retlw   00111001B	    ; c
+ retlw   01011110B	    ; d
+ retlw   01111001B	    ; E
+ retlw   01110001B	    ; F
+ 
+END
